@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Relationship Graph</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+  <script src="https://d3js.org/d3.v6.min.js"></script>
+  
+  <style>
+    /* ===== Global Styles ===== */
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: 'Roboto', sans-serif;
+      background: #1C1B1F;
+      color: #F0F0F0;
+      -webkit-font-smoothing: antialiased;
+    }
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    h2 {
+      text-align: center;
+      font-weight: 500;
+      margin-bottom: 24px;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+    
+    /* ===== Container Layout ===== */
+    .container {
+      max-width: 1200px;
+      width: 100%;
+      height: 100%;
+      margin: 0 auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    /* ===== Control Panel ===== */
+    #controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      padding: 16px;
+      background: linear-gradient(145deg, #2D2B32, #3A3841);
+      border-radius: 16px;
+      margin-bottom: 24px;
+      box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.2),
+                  -4px -4px 8px rgba(255, 255, 255, 0.1);
+      justify-content: center;
+    }
+    #controls input, 
+    #controls button {
+      padding: 12px 16px;
+      border-radius: 24px;
+      border: 1px solid #555;
+      background: transparent;
+      color: #F0F0F0;
+      font-size: 14px;
+      text-align: center;
+      outline: none;
+      transition: box-shadow 0.2s ease;
+    }
+    #controls input:focus {
+      box-shadow: 0 0 8px #6750A4;
+      border-color: #6750A4;
+    }
+    #controls button {
+      cursor: pointer;
+      background: #6750A4;
+      border: none;
+      min-width: 120px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+      transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+    }
+    #controls button:hover {
+      background: #7D5260;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 10px rgba(0,0,0,0.3);
+    }
+    
+    /* ===== Graph Visualization ===== */
+    svg {
+      width: 100%;
+      flex: 1;
+      background: #2D2B32;
+      border: 1px solid #555;
+      border-radius: 16px;
+      box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+    }
+    .node circle {
+      stroke-width: 1.5px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .link {
+      stroke: #555;
+      stroke-width: 1.5;
+    }
+    .selected circle {
+      stroke: #FFCC00 !important;
+      stroke-width: 3px !important;
+    }
+    .node text {
+      font-size: 14px;
+      pointer-events: none;
+      fill: #F0F0F0;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Interactive Relationship Graph</h2>
+    
+    <div id="controls">
+      <input type="text" id="nodeName" placeholder="Enter node name">
+      <button id="addNode">Add Node</button>
+      <button id="clearSelection">Clear Selection</button>
+      <button id="removeNode">Remove Node</button>
+      <button id="connectNodes">Connect</button>
+      <button id="disconnectNodes">Disconnect</button>
+    </div>
+    
+    <svg></svg>
+  </div>
+  
+  <script>
+    // ===== D3 Initialization =====
+    const svg = d3.select("svg");
+    let { width, height } = svg.node().getBoundingClientRect();
+    
+    const simulation = d3.forceSimulation()
+      .force("link", d3.forceLink().id(d => d.id).distance(120))
+      .force("charge", d3.forceManyBody().strength(-250))
+      .force("center", d3.forceCenter(width / 2, height / 2));
+  
+    // ===== Data Structures =====
+    let nodes = [{ id: "You" }];
+    let links = [];
+    let selectedNodes = [];
+  
+    // ===== Event Listeners =====
+    document.getElementById("addNode").addEventListener("click", addNode);
+    document.getElementById("clearSelection").addEventListener("click", clearSelection);
+    document.getElementById("removeNode").addEventListener("click", removeNode);
+    document.getElementById("connectNodes").addEventListener("click", connectNodes);
+    document.getElementById("disconnectNodes").addEventListener("click", disconnectNodes);
+  
+    // ===== Core Functions =====
+    function updateGraph() {
+      // Update dimensions
+      const rect = svg.node().getBoundingClientRect();
+      width = rect.width;
+      height = rect.height;
+      svg.attr("width", width).attr("height", height);
+  
+      // Draw links
+      const link = svg.selectAll(".link")
+        .data(links)
+        .join("line")
+        .attr("class", "link");
+  
+      // Draw nodes
+      const node = svg.selectAll(".node")
+        .data(nodes, d => d.id)
+        .join(
+          enter => createNewNodes(enter),
+          update => updateExistingNodes(update)
+        );
+  
+      // Update simulation
+      simulation.nodes(nodes).on("tick", () => {
+        link.attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+  
+        node.attr("transform", d => `translate(${d.x}, ${d.y})`);
+      });
+  
+      simulation.force("link").links(links);
+      simulation.alpha(1).restart();
+    }
+  
+    function createNewNodes(enter) {
+      const g = enter.append("g")
+        .attr("class", d => `node ${selectedNodes.includes(d) ? 'selected' : ''}`)
+        .call(d3.drag()
+          .on("start", dragStart)
+          .on("drag", dragging)
+          .on("end", dragEnd));
+  
+      g.append("circle")
+        .attr("r", 20)
+        .attr("fill", d => d.id === "You" ? "#7D5260" : "#4A4458")
+        .attr("stroke", d => d.id === "You" ? "#EFB8C8" : "#E8DEF8")
+        .on("click", selectNode);
+  
+      g.append("text")
+        .attr("x", 25)
+        .attr("y", 5)
+        .text(d => d.id);
+  
+      return g;
+    }
+  
+    function updateExistingNodes(update) {
+      return update.attr("class", d => `node ${selectedNodes.includes(d) ? 'selected' : ''}`);
+    }
+  
+    // ===== Interaction Functions =====
+    function selectNode(event, d) {
+      event.stopPropagation();
+      const index = selectedNodes.indexOf(d);
+      
+      if (index === -1) {
+        if (selectedNodes.length < 2) selectedNodes.push(d);
+      } else {
+        selectedNodes.splice(index, 1);
+      }
+      
+      updateGraph();
+    }
+  
+    function addNode() {
+      const nameInput = document.getElementById("nodeName");
+      const name = nameInput.value.trim();
+      
+      if (!name) {
+        alert("Please enter a node name");
+        return;
+      }
+      
+      if (nodes.some(n => n.id === name)) {
+        alert("Node with this name already exists");
+        return;
+      }
+  
+      const newNode = { id: name };
+      nodes.push(newNode);
+      
+      if (selectedNodes.length === 1) {
+        links.push({ source: selectedNodes[0].id, target: name });
+      } else {
+        links.push({ source: "You", target: name });
+      }
+  
+      nameInput.value = "";
+      updateGraph();
+    }
+  
+    // ===== Connection Management =====
+    function connectNodes() {
+      if (selectedNodes.length !== 2) {
+        alert("Please select exactly 2 nodes to connect");
+        return;
+      }
+      
+      const [a, b] = selectedNodes;
+      if (!linkExists(a, b)) {
+        links.push({ source: a.id, target: b.id });
+      }
+      
+      clearSelection();
+    }
+  
+    function disconnectNodes() {
+      if (selectedNodes.length !== 2) {
+        alert("Please select exactly 2 nodes to disconnect");
+        return;
+      }
+      
+      const [a, b] = selectedNodes;
+      links = links.filter(l => {
+        const source = l.source.id || l.source;
+        const target = l.target.id || l.target;
+        return !((source === a.id && target === b.id) || (source === b.id && target === a.id));
+      });
+      
+      clearSelection();
+    }
+  
+    function linkExists(a, b) {
+      return links.some(l => {
+        const source = l.source.id || l.source;
+        const target = l.target.id || l.target;
+        return (source === a.id && target === b.id) || (source === b.id && target === a.id);
+      });
+    }
+  
+    // ===== Node Management =====
+    function removeNode() {
+      if (selectedNodes.length !== 1) {
+        alert("Please select exactly 1 node to remove");
+        return;
+      }
+      
+      if (selectedNodes[0].id === "You") {
+        alert("Cannot remove the 'You' node");
+        return;
+      }
+      
+      const nodeToRemove = selectedNodes[0];
+      nodes = nodes.filter(n => n.id !== nodeToRemove.id);
+      links = links.filter(l => {
+        const source = l.source.id || l.source;
+        const target = l.target.id || l.target;
+        return source !== nodeToRemove.id && target !== nodeToRemove.id;
+      });
+      
+      clearSelection();
+    }
+  
+    function clearSelection() {
+      selectedNodes = [];
+      updateGraph();
+    }
+  
+    // ===== Drag Functions =====
+    function dragStart(event, d) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      d.fx = d.x;
+      d.fy = d.y;
+    }
+  
+    function dragging(event, d) {
+      d.fx = event.x;
+      d.fy = event.y;
+    }
+  
+    function dragEnd(event, d) {
+      if (!event.active) simulation.alphaTarget(0);
+      d.fx = null;
+      d.fy = null;
+    }
+  
+    // ===== Window Resize Handler =====
+    window.addEventListener("resize", () => {
+      const rect = svg.node().getBoundingClientRect();
+      width = rect.width;
+      height = rect.height;
+      simulation.force("center", d3.forceCenter(width / 2, height / 2));
+      simulation.alpha(1).restart();
+    });
+  
+    // Initial render
+    updateGraph();
+  </script>
+</body>
+</html>
