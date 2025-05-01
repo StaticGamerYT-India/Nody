@@ -308,6 +308,9 @@ class RelationshipGraphPageState extends State<RelationshipGraphPage>
     youNodeKey: PersonNodeData(name: "You", icon: Icons.account_circle_rounded),
   };
 
+  late AnimationController _nodePulseController;
+  late Animation<double> _nodePulseAnimation;
+
   @override
   void initState() {
     super.initState();
@@ -325,8 +328,17 @@ class RelationshipGraphPageState extends State<RelationshipGraphPage>
       curve: Curves.easeInOut,
     );
 
+    // Add animation controller for node pulse effect
+    _nodePulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+    _nodePulseAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
+      CurvedAnimation(parent: _nodePulseController, curve: Curves.easeInOut),
+    );
+
     final youNode = Node.Id(DateTime.now().millisecondsSinceEpoch.toString());
-    youNode.key = youNodeKey;
+    youNode.key = youNodeKey; // Ensure key is properly assigned
     graph.addNode(youNode);
 
     _searchController.addListener(() {
@@ -350,6 +362,7 @@ class RelationshipGraphPageState extends State<RelationshipGraphPage>
     _graphUpdateAnimationController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    _nodePulseController.dispose(); // Don't forget to dispose the new controller
     super.dispose();
   }
 
@@ -637,15 +650,40 @@ class RelationshipGraphPageState extends State<RelationshipGraphPage>
             : surfaceColors.low;
 
     return Container(
-      decoration: BoxDecoration(color: graphBackgroundColor),
+      decoration: BoxDecoration(
+        color: graphBackgroundColor,
+        // Add a subtle gradient overlay to the background
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            colorScheme.primary.withOpacity(0.05),
+            graphBackgroundColor,
+            colorScheme.tertiary.withOpacity(0.03),
+          ],
+          stops: const [0.0, 0.6, 1.0],
+        ),
+      ),
       clipBehavior: Clip.none,
       child: Stack(
         children: [
+          // Add subtle particle effect background (optional)
           Positioned.fill(
             child: CustomPaint(
-              painter: GridPainter(
-                colorScheme.outlineVariant.withAlpha((0.2 * 255).round()),
+              painter: ParticleBackgroundPainter(
+                particleColor: colorScheme.primary.withOpacity(0.03),
+                particleCount: 20,
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: CustomPaint(
+              painter: EnhancedGridPainter(
+                colorScheme.brightness == Brightness.dark
+                    ? colorScheme.onSurface.withOpacity(0.08)
+                    : colorScheme.onSurface.withOpacity(0.05),
                 spacing: 40,
+                accentColor: colorScheme.primary.withOpacity(0.08),
               ),
             ),
           ),
@@ -661,15 +699,52 @@ class RelationshipGraphPageState extends State<RelationshipGraphPage>
               child: GraphView(
                 graph: graph,
                 algorithm: _algorithm,
-                paint:
-                    Paint()
-                      ..color = colorScheme.outlineVariant.withAlpha(
-                        (0.5 * 255).round(),
-                      )
-                      ..strokeWidth = 1.5
-                      ..style = PaintingStyle.stroke
-                      ..strokeCap = StrokeCap.round,
+                paint: Paint()
+                  ..color = colorScheme.brightness == Brightness.dark
+                      ? colorScheme.primary.withOpacity(0.45)
+                      : colorScheme.primary.withOpacity(0.35)
+                  ..strokeWidth = 2.5
+                  ..style: PaintingStyle.stroke
+                  ..strokeCap = StrokeCap.round,
                 builder: (Node node) => _buildNodeWidget(node, colorScheme),
+                // Add custom line decorator
+                pathBuilder: (edge) {
+                  Path path = Path();
+                  Offset sourceOffset = edge.source.position;
+                  Offset destOffset = edge.destination.position;
+                  
+                  path.moveTo(sourceOffset.dx, sourceOffset.dy);
+                  // Use curved path for more elegant connections
+                  final midX = (sourceOffset.dx + destOffset.dx) / 2;
+                  final midY = (sourceOffset.dy + destOffset.dy) / 2;
+                  
+                  // Add slight curve to the path
+                  path.quadraticBezierTo(
+                    midX, midY - 10, 
+                    destOffset.dx, destOffset.dy
+                  );
+                  
+                  return path;
+                },
+              ),
+            ),
+          ),
+          // Add a subtle overlay for depth effect
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 80,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    graphBackgroundColor,
+                    graphBackgroundColor.withOpacity(0.0),
+                  ],
+                ),
               ),
             ),
           ),
@@ -691,63 +766,188 @@ class RelationshipGraphPageState extends State<RelationshipGraphPage>
         _searchText.isNotEmpty &&
         !label.toLowerCase().contains(_searchText.toLowerCase());
 
-    Color bgColor =
-        isYou ? colorScheme.tertiaryContainer : colorScheme.secondaryContainer;
-    Color contentColor =
-        isYou
-            ? colorScheme.onTertiaryContainer
-            : colorScheme.onSecondaryContainer;
-    double scale = isSelected ? 1.15 : 1.0;
-    Border? border =
-        isSelected
-            ? Border.all(
-              color: colorScheme.primary.withAlpha((0.8 * 255).round()),
-              width: 2.5,
-            )
-            : null;
-    List<BoxShadow>? boxShadow = [
-      BoxShadow(
-        color:
-            isSelected
-                ? colorScheme.primary.withAlpha((0.3 * 255).round())
-                : colorScheme.shadow.withAlpha((0.2 * 255).round()),
-        blurRadius: isSelected ? 10.0 : 5.0,
-        spreadRadius: isSelected ? 1.5 : 0.5,
-        offset: Offset(0, isSelected ? 4 : 2),
-      ),
-    ];
-
+    // Enhanced color scheme for nodes with better contrast and vibrancy
+    Color bgColor = isYou 
+      ? colorScheme.tertiaryContainer 
+      : colorScheme.secondaryContainer;
+    Color contentColor = isYou
+        ? colorScheme.onTertiaryContainer
+        : colorScheme.onSecondaryContainer;
+    
+    // Apply selection styling with more vibrant colors
     if (isSelected) {
       bgColor = colorScheme.primaryContainer;
       contentColor = colorScheme.onPrimaryContainer;
     }
 
+    // Animation scale factor
+    double baseScale = isSelected ? 1.15 : 1.0;
+    
+    // Selected nodes should pulse to draw attention
+    Widget nodeWidget = isSelected 
+      ? AnimatedBuilder(
+          animation: _nodePulseAnimation,
+          builder: (context, child) {
+            return Transform.scale(
+              scale: baseScale * _nodePulseAnimation.value,
+              child: child,
+            );
+          },
+          child: _buildNodeContainer(
+            bgColor, contentColor, isSelected, colorScheme, iconData, label),
+        )
+      : Transform.scale(
+          scale: baseScale,
+          child: _buildNodeContainer(
+            bgColor, contentColor, isSelected, colorScheme, iconData, label),
+        );
+
     return AnimatedOpacity(
-      duration: const Duration(milliseconds: 200),
+      duration: const Duration(milliseconds: 300),
       opacity: isDimmed ? 0.3 : 1.0,
       child: GestureDetector(
         onTap: () => _handleNodeTap(node),
         child: Tooltip(
           message: label,
           preferBelow: false,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.fastOutSlowIn,
-            padding: const EdgeInsets.all(10.0),
-            transformAlignment: Alignment.center,
-            transform: Matrix4.identity()..scale(scale),
-            decoration: BoxDecoration(
-              color: bgColor,
-              shape: BoxShape.circle,
-              border: border,
-              boxShadow: boxShadow,
-            ),
-            child: Icon(iconData, size: 18, color: contentColor),
-          ),
+          waitDuration: const Duration(milliseconds: 800),
+          child: nodeWidget,
         ),
       ),
     );
   }
+
+  Widget _buildNodeContainer(
+    Color bgColor, 
+    Color contentColor, 
+    bool isSelected, 
+    ColorScheme colorScheme, 
+    IconData iconData, 
+    String label
+  ) {
+    return Container(
+      width: 62,
+      height: 62,
+      decoration: BoxDecoration(
+        color: bgColor,
+        shape: BoxShape.circle,
+        border: isSelected
+            ? Border.all(
+                color: colorScheme.primary,
+                width: 3.0,
+              )
+            : Border.all(
+                color: colorScheme.surfaceContainerHighest.withOpacity(0.3),
+                width: 1.5,
+              ),
+        boxShadow: [
+          // Outer shadow
+          BoxShadow(
+            color: isSelected
+                ? colorScheme.primary.withOpacity(0.5)
+                : colorScheme.shadow.withOpacity(0.18),
+            blurRadius: isSelected ? 14 : 10,
+            spreadRadius: isSelected ? 1 : 0,
+            offset: const Offset(0, 2),
+          ),
+          // Inner light shadow for 3D effect
+          BoxShadow(
+            color: Colors.white.withOpacity(
+              colorScheme.brightness == Brightness.dark ? 0.07 : 0.35
+            ),
+            blurRadius: 8,
+            spreadRadius: -2,
+            offset: const Offset(-2, -2),
+          ),
+        ],
+        // Add a more sophisticated gradient overlay
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            bgColor.withOpacity(1.0).withRed((bgColor.red + 15).clamp(0, 255)),
+            bgColor.withOpacity(0.85),
+          ],
+        ),
+      ),
+      padding: const EdgeInsets.all(12.0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            iconData, 
+            size: 24, 
+            color: contentColor,
+            shadows: [
+              // Add subtle shadow to icon for depth
+              Shadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 3,
+                offset: const Offset(1, 1),
+              ),
+            ],
+          ),
+          if (label.length <= 5) // Show short names inside the node
+            Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: contentColor,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black.withOpacity(0.2),
+                      blurRadius: 1,
+                      offset: const Offset(0.5, 0.5),
+                    ),
+                  ],
+                ),
+                textAlign: TextAlign.center,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+// Add this new ParticleBackgroundPainter class for subtle background effect
+class ParticleBackgroundPainter extends CustomPainter {
+  final Color particleColor;
+  final int particleCount;
+  final List<Offset> particles = [];
+  final List<double> sizes = [];
+  
+  ParticleBackgroundPainter({
+    required this.particleColor,
+    this.particleCount = 30,
+  }) {
+    final random = math.Random();
+    for (int i = 0; i < particleCount; i++) {
+      particles.add(Offset(
+        random.nextDouble() * 1000, 
+        random.nextDouble() * 1000
+      ));
+      sizes.add(random.nextDouble() * 3 + 1); // Random sizes between 1-4
+    }
+  }
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = particleColor
+      ..style = PaintingStyle.fill;
+      
+    for (int i = 0; i < particleCount; i++) {
+      canvas.drawCircle(particles[i], sizes[i], paint);
+    }
+  }
+  
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
 }
 
 // --- Custom Painter & Extensions ---
@@ -773,9 +973,47 @@ class GridPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
+class EnhancedGridPainter extends CustomPainter {
+  final Color color;
+  final Color accentColor;
+  final double spacing;
+  
+  EnhancedGridPainter(this.color, {this.spacing = 40.0, required this.accentColor});
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 0.5;
+      
+    final accentPaint = Paint()
+      ..color = accentColor
+      ..strokeWidth = 1.0;
+
+    // Draw regular grid lines
+    for (double x = 0; x < size.width; x += spacing) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y < size.height; y += spacing) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+    
+    // Draw accent lines (every 4 lines)
+    for (double x = 0; x < size.width; x += spacing * 4) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), accentPaint);
+    }
+    for (double y = 0; y < size.height; y += spacing * 4) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), accentPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 extension GraphExtensions on Graph {
   Node? getNodeUsingValueKey(ValueKey key) {
-    return nodes.firstWhereOrNull((n) => n.key == key);
+    return nodes.firstWhereOrNull((n) => n.key == key); // Ensure compatibility
   }
 
   Edge? getEdgeBetween(Node node1, Node node2) {
